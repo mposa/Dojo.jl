@@ -25,13 +25,20 @@ mech_kwargs = Dict(
 	:friction_coefficient => 0.16, :edge_length => 0.1 * distance_scaling)
 
 # ### Load dataset
+mechanism = get_mechanism(model; mech_kwargs...)
 dataset = jldopen(joinpath(@__DIR__, "data", "datasets", "real_block.jld2"))
 storages = dataset["storages"]
 JLD2.close(dataset)
 
-function parameter_stack(θ)
+N_inertia = 3
+function parameter_stack(θ_full)
+	## 8 for joint
+	## [m,flat(J),v15,ω15,x2,q2]
 	## [friction_coefficient; contact_radius; contact_origin]
+	θ = θ_full[N_inertia + 1:end]
 	return [
+		zeros(8);
+		1; θ_full[1]; 0; 0; θ_full[2]; 0; θ_full[3]; zeros(13);
 		θ[1]; 0; +θ[2:4];
 		θ[1]; 0; +θ[5:7];
 		θ[1]; 0; +θ[8:10];
@@ -43,7 +50,7 @@ function parameter_stack(θ)
 	]
 end
 
-data_mask = ForwardDiff.jacobian(x -> parameter_stack(x), zeros(25));
+data_mask = ForwardDiff.jacobian(x -> parameter_stack(x), zeros(25 + N_inertia));
 
 # ### Optimization Objective: Evaluation & Gradient
 timesteps = 50:52
@@ -75,7 +82,8 @@ function fgH0(d; storages=storages, timesteps=timesteps)
 end
 
 # ### Initial guess
-guess = [0.40,
+guess = [.66, .66, .66,
+	0.40,
 	+2.00, +2.00, -2.00,
 	+2.00, -2.00, -2.00,
 	-2.00, +2.00, -2.00,
@@ -88,7 +96,8 @@ guess = [0.40,
 guess_error = f0(guess)
 
 # ### Solve
-lower_bound = [0.00,
+lower_bound = [.1, .1, .1,
+	0.00,
 	+0.05, +0.05, -2.00,
 	+0.05, -2.00, -2.00,
 	-2.00, +0.05, -2.00,
@@ -98,7 +107,8 @@ lower_bound = [0.00,
 	-2.00, +0.05, +0.05,
 	-2.00, -2.00, +0.05,
 ]
-upper_bound = [0.80,
+upper_bound = [2, 2, 2,
+	0.80,
 	+2.00, +2.00, -0.05,
 	+2.00, -0.05, -0.05,
 	-0.05, +2.00, -0.05,
@@ -131,7 +141,7 @@ position = storage.x[1][1]-[0;0;solution_parameters[2]]
 orientation = storage.q[1][1]
 velocity = storage.v[1][1]
 angular_velocity = storage.ω[1][1]
-edge_length = 2*sum(abs.(solution_parameters[2:25]))/24 # mean edge length for visualization
+edge_length = 2*sum(abs.(solution_parameters[N_inertia+2:N_inertia+25]))/24 # mean edge length for visualization
 
 mech_kwargs = Dict(
 	:timestep => 1/148, :gravity => -9.81 * distance_scaling, :color => RGBA(0,1,0,0.5),

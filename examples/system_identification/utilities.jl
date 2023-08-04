@@ -48,7 +48,7 @@ end
 
 function contact_step!(mechanism::Mechanism, z::AbstractVector, θ::AbstractVector;
     opts=SolverOptions())
-set_data!(mechanism.contacts, θ)
+set_data!(mechanism, θ)
 nu = input_dimension(mechanism)
 step!(mechanism, z, zeros(nu), opts=opts)
 end
