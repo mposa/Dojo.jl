@@ -42,8 +42,8 @@ end
 function get_contact_gradients!(mechanism::Mechanism, z::AbstractVector, θ::AbstractVector;
     opts=SolverOptions())
 z_next = contact_step!(mechanism, z, θ; opts)
-jacobian_state, jacobian_contact = Dojo.get_contact_gradients(mechanism)
-return z_next, jacobian_state, jacobian_contact
+jacobian_state, jacobian_contact, jacobian_inertia = get_contact_gradients_with_inertia(mechanism)
+return z_next, jacobian_state, jacobian_contact, jacobian_inertia
 end
 
 function contact_step!(mechanism::Mechanism, z::AbstractVector, θ::AbstractVector;
@@ -70,9 +70,9 @@ for i in timesteps
     z_true = get_maximal_state(storage, i+1)
     
     if derivatives
-        z_prediction, ∂_state, ∂_contact = get_contact_gradients!(mechanism, z_prediction, θ; opts)
+        z_prediction, ∂_state, ∂_contact, ∂_inertia = get_contact_gradients!(mechanism, z_prediction, θ; opts)
         attjac = attitude_jacobian(z_prediction, 1)
-        d_contact = ∂_contact + ∂_state * d_contact
+        d_contact = hcat(zeros(nz, 8), ∂_inertia, zeros(nz, 13), ∂_contact) + ∂_state * d_contact
         gradient += (attjac * d_contact)' * Q * (z_prediction - z_true)
         hessian += (attjac * d_contact)' * Q * (attjac * d_contact)
     else

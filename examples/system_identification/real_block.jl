@@ -9,6 +9,7 @@ using LinearAlgebra
 
 # ### Include methods
 include("utilities.jl")
+include("../../src/gradients/contact.jl")
 
 
 # ### Parameters
@@ -26,6 +27,7 @@ mech_kwargs = Dict(
 
 # ### Load dataset
 mechanism = get_mechanism(model; mech_kwargs...)
+# a,b,c = Dojo.get_contact_gradients(mechanism)
 dataset = jldopen(joinpath(@__DIR__, "data", "datasets", "real_block.jld2"))
 storages = dataset["storages"]
 JLD2.close(dataset)
@@ -39,6 +41,7 @@ function parameter_stack(θ_full)
 	return [
 		zeros(8);
 		1; θ_full[1]; 0; 0; θ_full[2]; 0; θ_full[3]; zeros(13);
+		# 1; 2/3; 0; 0; 2/3; 0; 2/3; zeros(13);
 		θ[1]; 0; +θ[2:4];
 		θ[1]; 0; +θ[5:7];
 		θ[1]; 0; +θ[8:10];
@@ -68,7 +71,8 @@ end
 function fgH0(d; storages=storages, timesteps=timesteps)
 	mechanism = get_mechanism(model; mech_kwargs...)
 	f = 0.0
-	nd = sum(Dojo.data_dim.(mechanism.contacts))
+	# TODO (posa): fix magic number below
+	nd = 68 #sum(Dojo.data_dim.(mechanism.contacts))
 	g = zeros(nd)
 	H = zeros(nd,nd)
 	for i = 1:100
@@ -124,32 +128,39 @@ solution = quasi_newton_solve(f0, fgH0, guess; iter=20, gtol=1e-8, ftol=1e-6,
 
 # ### Result
 solution_parameters = solution[1]
+print(solution_parameters)
 solution_error = f0(solution_parameters)
 
 # ### Visualize
+
+# storage = storages[1]
 vis = Visualizer()
-storage = storages[1]
-
-mech_kwargs = Dict(
-	:timestep => 1/148, :gravity => -9.81 * distance_scaling, :color => RGBA(1,0,0,0.5),
-	:friction_coefficient => 0.16, :edge_length => 0.1 * distance_scaling)
-mech = get_mechanism(model; mech_kwargs...)
-vis, animation = visualize(mech, storage; vis, return_animation=true, name=:original)
+for storage in storages
 
 
-position = storage.x[1][1]-[0;0;solution_parameters[2]]
-orientation = storage.q[1][1]
-velocity = storage.v[1][1]
-angular_velocity = storage.ω[1][1]
-edge_length = 2*sum(abs.(solution_parameters[N_inertia+2:N_inertia+25]))/24 # mean edge length for visualization
+	mech_kwargs = Dict(
+		:timestep => 1/148, :gravity => -9.81 * distance_scaling, :color => RGBA(1,0,0,0.5),
+		:friction_coefficient => 0.16, :edge_length => 0.1 * distance_scaling)
+	mech = get_mechanism(model; mech_kwargs...)
+	_, animation = visualize(mech, storage; vis, return_animation=true, name=:original)
 
-mech_kwargs = Dict(
-	:timestep => 1/148, :gravity => -9.81 * distance_scaling, :color => RGBA(0,1,0,0.5),
-	:friction_coefficient => solution_parameters[1], :edge_length => edge_length)
-mech = get_mechanism(model; mech_kwargs...)
-set_data!(mech.contacts, parameter_stack(solution_parameters)) # set actual learned contact points
+	position = storage.x[1][1]-[0;0;solution_parameters[2+N_inertia]]
+	orientation = storage.q[1][1]
+	velocity = storage.v[1][1]
+	angular_velocity = storage.ω[1][1]
+	edge_length = 2*sum(abs.(solution_parameters[N_inertia+2:N_inertia+25]))/24 # mean edge length for visualization
 
-initialize!(mech, model; position, velocity, orientation, angular_velocity)
-storage = simulate!(mech, length(storage)/148; record=true, opts)
-visualize(mech, storage; vis, animation, name=:learned)
-render(vis)
+	mech_kwargs = Dict(
+		:timestep => 1/148, :gravity => -9.81 * distance_scaling, :color => RGBA(0,1,0,0.5),
+		:friction_coefficient => solution_parameters[1+N_inertia], :edge_length => edge_length)
+	mech = get_mechanism(model; mech_kwargs...)
+	set_data!(mech, parameter_stack(solution_parameters)) # set actual learned contact points
+
+	initialize!(mech, model; position, velocity, orientation, angular_velocity)
+	storage = simulate!(mech, length(storage)/148; record=true, opts)
+	visualize(mech, storage; vis, animation, name=:learned)
+	render(vis)
+	sleep(5)
+end
+
+sleep(1000)
